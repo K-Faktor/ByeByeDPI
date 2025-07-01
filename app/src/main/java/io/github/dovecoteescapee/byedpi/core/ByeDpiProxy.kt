@@ -1,5 +1,8 @@
 package io.github.dovecoteescapee.byedpi.core
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 class ByeDpiProxy {
     companion object {
         init {
@@ -7,21 +10,48 @@ class ByeDpiProxy {
         }
     }
 
-    fun startProxy(preferences: ByeDpiProxyPreferences): Int {
-        val args = prepareArgs(preferences)
-        return jniStartProxy(args)
-    }
+    private val mutex = Mutex()
 
-    fun stopProxy(): Int {
-        return jniStopProxy()
-    }
+    suspend fun startProxy(preferences: ByeDpiProxyPreferences): Int {
+        val result = createSocket(preferences)
 
-    private fun prepareArgs(preferences: ByeDpiProxyPreferences): Array<String> =
-        when (preferences) {
-            is ByeDpiProxyCmdPreferences -> preferences.args
-            is ByeDpiProxyUIPreferences -> preferences.uiargs
+        if (result < 0) {
+            return -1
         }
 
-    private external fun jniStartProxy(args: Array<String>): Int
+        return jniStartProxy()
+    }
+
+    suspend fun stopProxy(): Int {
+        mutex.withLock {
+            val result = jniStopProxy()
+
+            if (result < 0) {
+                return -1
+            }
+
+            return result
+        }
+    }
+
+    private suspend fun createSocket(preferences: ByeDpiProxyPreferences): Int =
+        mutex.withLock {
+            val result = createSocketFromPreferences(preferences)
+
+            if (result < 0) {
+                return -1
+            }
+
+            return result
+        }
+
+    private fun createSocketFromPreferences(preferences: ByeDpiProxyPreferences) =
+        when (preferences) {
+            is ByeDpiProxyCmdPreferences -> jniCreateSocket(preferences.args)
+            is ByeDpiProxyUIPreferences -> jniCreateSocket(preferences.uiargs)
+        }
+
+    private external fun jniCreateSocket(args: Array<String>): Int
+    private external fun jniStartProxy(): Int
     private external fun jniStopProxy(): Int
 }
